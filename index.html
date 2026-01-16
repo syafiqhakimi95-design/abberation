@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Aberration Simulator V14 (Clinical Logic)</title>
+    <title>Aberration Simulator V16 (Clinical Edition)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -30,7 +30,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- COMPONENTS ---
+        // --- SHARED COMPONENTS ---
         const ZoomableSVG = ({ children, viewBox, className }) => {
             const svgRef = useRef(null);
             const zoomController = useRef(null);
@@ -197,8 +197,10 @@
 
                             {angle > 5 && (
                                 <>
-                                    <text x={tanFocusX} y="130" className="text-[10px] font-bold fill-red-500" textAnchor="middle">T</text>
-                                    <text x={sagFocusX} y="170" className="text-[10px] font-bold fill-blue-500" textAnchor="middle">S</text>
+                                    <text x={tanFocusX} y="130" className="text-[12px] font-bold fill-red-500" textAnchor="middle">T (Meridional)</text>
+                                    <text x={sagFocusX} y="170" className="text-[12px] font-bold fill-blue-500" textAnchor="middle">S (Sagittal)</text>
+                                    <path d={`M ${tanFocusX} 180 L ${sagFocusX} 180`} stroke="#64748b" strokeWidth="1" markerEnd="url(#arrow)" markerStart="url(#arrow)" />
+                                    <text x={(tanFocusX + sagFocusX)/2} y="195" className="text-[10px] fill-slate-500" textAnchor="middle">Interval of Sturm</text>
                                 </>
                             )}
                         </ZoomableSVG>
@@ -219,8 +221,9 @@
                         <Card>
                             <Slider label={`Incident Angle: ${angle}°`} value={angle} min={0} max={40} onChange={setAngle} />
                             <ClinicalNote points={[
-                                "Pantoscopic Tilt: Tilting a lens induces cylinder power. We use Martin's Rule to compensate for this during dispensing.",
-                                "Peripheral Clarity: High base curve selection (Tscherning's Ellipse) minimizes this aberration for peripheral viewing."
+                                "T (Meridional): Focuses light in the plane of the lens tilt. It is more powerful and focuses closer to the lens.",
+                                "S (Sagittal): Focuses light perpendicular to the tilt. It focuses further away.",
+                                "Pantoscopic Tilt: Tilting a lens induces cylinder power. We use Martin's Rule to compensate for this."
                             ]} />
                         </Card>
                     </div>
@@ -229,52 +232,133 @@
         };
 
         // ==========================================
-        // 4. CURVATURE OF FIELD
+        // 4. CURVATURE OF FIELD (FINAL CLINICAL V16)
         // ==========================================
         const CurvatureSim = () => {
-            const [focusPlane, setFocusPlane] = useState(0); 
-            const retinaX = 350 - (focusPlane / 100) * 30; 
-            const centerBlur = focusPlane / 20; 
-            const edgeBlur = (100 - focusPlane) / 20;
-            const curvePath = "M 350 50 Q 320 150 350 250";
+            const [focusPlane, setFocusPlane] = useState(50); 
+            const [lensType, setLensType] = useState('spherical'); // 'spherical' or 'aspheric'
+            
+            // Geometry Settings
+            const lensX = 150;
+            const farPoint = 350; 
+            const curveSag = 40;  
+            
+            const isAspheric = lensType === 'aspheric';
+            const centerFocusX = farPoint;
+            // In Aspheric mode, edge focus matches center focus (flat field)
+            const edgeFocusX = isAspheric ? farPoint : farPoint - curveSag;
+            
+            const sensorX = 300 + (focusPlane / 100) * 60;
+            
+            // Path logic: Aspheric = Flat Line. Spherical = Curved Bezier.
+            const petzvalPath = isAspheric 
+                ? `M ${centerFocusX} 50 L ${centerFocusX} 250`
+                : `M ${edgeFocusX} 50 Q ${centerFocusX + curveSag} 150 ${edgeFocusX} 250`;
+
+            const getBlockColor = (yPos) => {
+                let targetFocusX;
+                if(isAspheric) {
+                    targetFocusX = centerFocusX;
+                } else {
+                    const t = Math.abs(yPos - 150) / 100; 
+                    targetFocusX = centerFocusX - (t * t * curveSag);
+                }
+                const dist = Math.abs(sensorX - targetFocusX);
+                return dist < 10 ? "#3b82f6" : "#94a3b8"; 
+            };
+            
+            // Blur Calculation for Patient View
+            const centerBlur = Math.abs(sensorX - centerFocusX);
+            const edgeBlur = Math.abs(sensorX - edgeFocusX);
 
             return (
                 <div className="grid lg:grid-cols-2 gap-6">
                     <Card title="🔬 Ray Diagram (Petzval Surface)" className="h-[26rem]">
-                        <ZoomableSVG viewBox="0 0 400 300" className="h-full">
-                            <ellipse cx="150" cy="150" rx="10" ry="80" fill="rgba(20, 184, 166, 0.2)" stroke="#0d9488" strokeWidth="2"/>
-                            <line x1="50" y1="50" x2="50" y2="250" stroke="#f59e0b" strokeWidth="3"/>
-                            <path d={curvePath} fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="4"/>
-                            <text x="365" y="150" className="text-[10px] font-bold fill-red-500" style={{writingMode:'vertical-rl'}}>Petzval Surface</text>
-                            <line x1={retinaX} y1="40" x2={retinaX} y2="260" stroke="#334155" strokeWidth="3" />
-                            <text x={retinaX} y="30" className="text-[12px] font-bold" textAnchor="middle">RETINA</text>
-                            <path d="M 50 150 L 150 150 L 350 150" stroke="#64748b" opacity="0.5"/>
-                            <path d="M 50 50 L 150 150 L 320 250" stroke="#64748b" opacity="0.3"/>
+                        <ZoomableSVG viewBox="0 0 450 300" className="h-full">
+                            <line x1="50" y1="50" x2="50" y2="250" stroke="#ef4444" strokeWidth="4" strokeLinecap="round"/>
+                            <text x="50" y="40" className="text-[10px] fill-slate-500 font-bold" textAnchor="middle">Planar Object</text>
+
+                            {/* Dynamic Lens Shape */}
+                            {isAspheric ? (
+                                // Aspheric: Meniscus / Crescent Shape (Corrected Lukisan)
+                                // M 150 40: Start top
+                                // Q 175 150 150 260: Front Curve (Bulges right to 175)
+                                // Q 155 150 150 40: Back Curve (Bulges right to 155, but less)
+                                <path d="M 150 40 Q 175 150 150 260 Q 155 150 150 40 Z" fill="rgba(16, 185, 129, 0.2)" stroke="#059669" strokeWidth="2" />
+                            ) : (
+                                // Spherical: Standard "Fat" Ellipse
+                                <ellipse cx={lensX} cy="150" rx="15" ry="110" fill="rgba(239, 68, 68, 0.1)" stroke="#dc2626" strokeWidth="2"/>
+                            )}
+                            <text x={lensX} y="30" className={`text-[10px] font-bold ${isAspheric ? 'fill-emerald-600' : 'fill-red-500'}`} textAnchor="middle">
+                                {isAspheric ? "Aspheric Lens" : "Spherical Lens"}
+                            </text>
+
+                            {/* Incoming Parallel Rays */}
+                            <g stroke="#64748b" strokeWidth="1" opacity="0.6">
+                                <line x1="50" y1="50" x2={lensX} y2="50" markerEnd="url(#arrow)"/>
+                                <line x1="50" y1="150" x2={lensX} y2="150" markerEnd="url(#arrow)"/>
+                                <line x1="50" y1="250" x2={lensX} y2="250" markerEnd="url(#arrow)"/>
+                            </g>
+
+                            {/* Refracted Rays */}
+                            <g stroke={isAspheric ? "#059669" : "#dc2626"} strokeWidth="1.5" fill="none">
+                                <path d={`M ${lensX} 50 L ${edgeFocusX} 50`} />
+                                <path d={`M ${lensX} 150 L ${centerFocusX} 150`} />
+                                <path d={`M ${lensX} 250 L ${edgeFocusX} 250`} />
+                            </g>
+
+                            {/* Petzval Surface */}
+                            <path d={petzvalPath} stroke={isAspheric ? "#059669" : "#dc2626"} strokeWidth="3" fill="none" strokeDasharray="4"/>
+                            <text x={edgeFocusX - 10} y="40" className={`text-[10px] font-bold ${isAspheric ? 'fill-emerald-600' : 'fill-red-500'}`}>
+                                {isAspheric ? "Flat Field (Corrected)" : "Curved Field (Uncorrected)"}
+                            </text>
+
+                            {/* Sensor Array */}
+                            <g transform={`translate(${sensorX}, 0)`}>
+                                {[50, 70, 90, 110, 130, 150, 170, 190, 210, 230, 250].map((y, i) => (
+                                    <rect key={i} x="-5" y={y-8} width="10" height="16" 
+                                        fill={getBlockColor(y)} stroke="white" strokeWidth="1" rx="2" />
+                                ))}
+                                <line x1="0" y1="30" x2="0" y2="270" stroke="#334155" strokeWidth="1" opacity="0.5"/>
+                                <text x="0" y="285" className="text-[10px] fill-slate-700 font-bold" textAnchor="middle">Retina</text>
+                            </g>
                         </ZoomableSVG>
                     </Card>
+
                     <Card title="👁️ Patient View (9-Point Grid)" className="h-[26rem]">
                         <div className="h-full bg-black flex items-center justify-center relative p-8 rounded-lg">
                             <div className="grid grid-cols-3 gap-12">
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur}px)`}}>E</div>
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur*0.8}px)`}}>F</div>
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur}px)`}}>P</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/5}px)`, opacity: edgeBlur<10?1:0.7}}>E</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/6}px)`, opacity: edgeBlur<10?1:0.7}}>F</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/5}px)`, opacity: edgeBlur<10?1:0.7}}>P</div>
                                 
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur*0.8}px)`}}>T</div>
-                                <div className="text-white text-4xl optotype text-center text-yellow-400 scale-125" style={{filter: `blur(${centerBlur}px)`}}>O</div>
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur*0.8}px)`}}>Z</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/6}px)`, opacity: edgeBlur<10?1:0.7}}>T</div>
+                                <div className="text-white text-4xl optotype text-center text-yellow-400 scale-125" style={{filter: `blur(${centerBlur/5}px)`, opacity: centerBlur<10?1:0.7}}>O</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/6}px)`, opacity: edgeBlur<10?1:0.7}}>Z</div>
                                 
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur}px)`}}>L</div>
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur*0.8}px)`}}>P</div>
-                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur}px)`}}>E</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/5}px)`, opacity: edgeBlur<10?1:0.7}}>L</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/6}px)`, opacity: edgeBlur<10?1:0.7}}>P</div>
+                                <div className="text-white text-2xl optotype text-center" style={{filter: `blur(${edgeBlur/5}px)`, opacity: edgeBlur<10?1:0.7}}>E</div>
+                            </div>
+                            <div className="absolute bottom-4 text-xs text-slate-500">
+                                {centerBlur < 10 ? "Center in Focus" : edgeBlur < 10 ? "Edges in Focus" : "Blurry"}
                             </div>
                         </div>
                     </Card>
+
                     <div className="lg:col-span-2">
                         <Card>
-                            <Slider label="Focus Adjustment (Move Retina)" value={focusPlane} min={0} max={100} onChange={setFocusPlane} />
+                            <div className="flex items-center justify-between mb-4">
+                                <Slider label="Retina Position" value={focusPlane} min={0} max={100} onChange={setFocusPlane} />
+                                <div className="ml-8 flex items-center gap-2 border p-2 rounded-lg bg-slate-50">
+                                    <span className="text-sm font-bold text-slate-700">Lens Design:</span>
+                                    <button onClick={()=>setLensType('spherical')} className={`px-3 py-1 text-xs rounded transition ${!isAspheric ? 'bg-red-500 text-white shadow' : 'text-slate-500 hover:bg-slate-200'}`}>Standard Spherical</button>
+                                    <button onClick={()=>setLensType('aspheric')} className={`px-3 py-1 text-xs rounded transition ${isAspheric ? 'bg-emerald-600 text-white shadow' : 'text-slate-500 hover:bg-slate-200'}`}>Aspheric (Corrected)</button>
+                                </div>
+                            </div>
                             <ClinicalNote points={[
-                                "Fundus Photography: It is often impossible to focus both the macula and peripheral retina simultaneously because the eye's Petzval surface is steeper than the camera sensor.",
-                                "Corrected Curve Lenses: Modern lenses use specific base curves to flatten this field, ensuring edge-to-edge clarity."
+                                "Spherical Lenses: Standard curves cause off-axis light to focus closer than central light, creating a 'bowl-shaped' focus plane that doesn't match the retina.",
+                                "Aspheric Lenses: Use a flatter, complex surface profile (often meniscus) to push the peripheral focus back, aligning it with the central focus for edge-to-edge clarity."
                             ]} />
                         </Card>
                     </div>
@@ -283,19 +367,31 @@
         };
 
         // ==========================================
-        // 5. DISTORTION
+        // 5. DISTORTION (V16 REDUCED)
         // ==========================================
         const DistortionSim = () => {
             const [power, setPower] = useState(0); 
-            const factor = power * 0.000005; 
+            // V16 Change: Dampened factor even more (was 0.000001, now 0.0000005)
+            const factor = power * 0.0000005; 
 
             const renderGrid = () => {
                 let paths = []; const size = 300; const mid = size/2; 
-                for(let i = -100; i <= 100; i+=25) {
-                    let dV = `M ${mid+i} 50 `; for(let y=50; y<=250; y+=10) { let dx=i; let dy=y-mid; let dist=1+factor*(dx*dx+dy*dy); dV+=`L ${mid+dx*dist} ${mid+dy*dist} `; }
-                    paths.push(<path d={dV} stroke={power===0?"#94a3b8":"#3b82f6"} fill="none" strokeWidth="1.5" key={`v${i}`}/>);
-                    let dH = `M 50 ${mid+i} `; for(let x=50; x<=250; x+=10) { let dx=x-mid; let dy=i; let dist=1+factor*(dx*dx+dy*dy); dH+=`L ${mid+dx*dist} ${mid+dy*dist} `; }
-                    paths.push(<path d={dH} stroke={power===0?"#94a3b8":"#3b82f6"} fill="none" strokeWidth="1.5" key={`h${i}`}/>);
+                for(let i = -120; i <= 120; i+=20) {
+                    let dV = `M ${mid+i} 20 `; 
+                    for(let y=20; y<=280; y+=10) { 
+                        let dx=i; let dy=y-mid; 
+                        let dist=1+factor*(dx*dx+dy*dy); 
+                        dV+=`L ${mid+dx*dist} ${mid+dy*dist} `; 
+                    }
+                    paths.push(<path d={dV} stroke={power===0?"#94a3b8":"#3b82f6"} fill="none" strokeWidth="1" key={`v${i}`}/>);
+
+                    let dH = `M 20 ${mid+i} `; 
+                    for(let x=20; x<=280; x+=10) { 
+                        let dx=x-mid; let dy=i; 
+                        let dist=1+factor*(dx*dx+dy*dy); 
+                        dH+=`L ${mid+dx*dist} ${mid+dy*dist} `; 
+                    }
+                    paths.push(<path d={dH} stroke={power===0?"#94a3b8":"#3b82f6"} fill="none" strokeWidth="1" key={`h${i}`}/>);
                 }
                 return paths;
             };
@@ -306,20 +402,25 @@
                         <ZoomableSVG viewBox="0 0 400 300" className="h-full">
                             <line x1="200" y1="0" x2="200" y2="300" stroke="#cbd5e1" strokeDasharray="4"/>
                             <ellipse cx="200" cy="150" rx="10" ry="100" fill="rgba(20, 184, 166, 0.2)" stroke="#0d9488" strokeWidth="2"/>
-                            <path d="M 50 150 L 350 150" stroke="#64748b" />
-                            <path d={`M 50 100 L 200 100 L 350 ${100 - power*2}`} stroke="#ef4444" strokeWidth="2" />
-                            <path d={`M 50 200 L 200 200 L 350 ${200 + power*2}`} stroke="#ef4444" strokeWidth="2" />
-                            <text x="50" y="80" className="text-[12px]">Object</text>
-                            <text x="350" y="80" className="text-[12px]">Image</text>
+                            
+                            <rect x="50" y="100" width="10" height="100" fill="#64748b" opacity="0.5"/>
+                            <path d={`M 50 100 L 200 100 L 350 ${100 - power*2}`} stroke="#ef4444" strokeWidth="1" strokeDasharray="2"/>
+                            <path d={`M 50 200 L 200 200 L 350 ${200 + power*2}`} stroke="#ef4444" strokeWidth="1" strokeDasharray="2"/>
+                            <path d={`M 340 ${100 - power*2} Q 350 150 340 ${200 + power*2}`} stroke="#3b82f6" strokeWidth="3" fill="none" />
+                            
+                            <text x="50" y="90" className="text-[12px]">Object</text>
+                            <text x="350" y="90" className="text-[12px]">Image</text>
                             <text x="200" y="280" textAnchor="middle" className="text-[12px] font-bold fill-slate-500">
-                                {power > 0 ? "Periphery Magnified (Pincushion)" : power < 0 ? "Periphery Minified (Barrel)" : "Normal"}
+                                {power > 0 ? "Pincushion" : power < 0 ? "Barrel" : "Normal"}
                             </text>
                         </ZoomableSVG>
                     </Card>
                     <Card title="👁️ Patient View (Grid)" className="h-[26rem]">
-                        <div className="h-full flex items-center justify-center bg-white relative overflow-hidden rounded-lg">
+                        <div className="h-full flex items-center justify-center bg-white relative overflow-hidden rounded-lg border border-slate-100 shadow-inner">
                             <svg viewBox="0 0 300 300" className="w-full h-full absolute top-0 left-0">
-                                <rect width="300" height="300" fill="white"/>{renderGrid()}<circle cx="150" cy="150" r="3" fill="black"/>
+                                <rect width="300" height="300" fill="white"/>
+                                {renderGrid()}
+                                <circle cx="150" cy="150" r="3" fill="black"/>
                             </svg>
                         </div>
                     </Card>
@@ -327,9 +428,9 @@
                         <Card>
                             <Slider label={`Lens Power: ${power > 0 ? "+" : ""}${power}D`} value={power} min={-10} max={10} step={0.5} onChange={setPower} />
                             <ClinicalNote points={[
-                                "Aphakia: High plus lenses cause Pincushion distortion. Patients may feel like they are walking in a bowl.",
-                                "High Myopia: High minus lenses cause Barrel distortion. Objects at the edge look smaller.",
-                                "Progressive Lenses: Dynamic distortion ('swim') occurs in the periphery of PALs due to changing magnification."
+                                "Aphakia: High plus lenses cause Pincushion distortion.",
+                                "High Myopia: High minus lenses cause Barrel distortion.",
+                                "Note: The distortion effect has been dampened in this simulation to more realistically represent modern ophthalmic lenses."
                             ]} />
                         </Card>
                     </div>
@@ -338,68 +439,77 @@
         };
 
         // ==========================================
-        // 6. CHROMATIC ABERRATION (REVISED V14)
+        // 6. CHROMATIC ABERRATION (V16 FULL)
         // ==========================================
         const ChromaticSim = () => {
             const [abbe, setAbbe] = useState(30);
-            const [power, setPower] = useState(5); 
-            const [viewHeight, setViewHeight] = useState(0); 
+            const [beamWidth, setBeamWidth] = useState(20); 
+            const [offAxis, setOffAxis] = useState(0); // V16 Slider
             const [mode, setMode] = useState("lateral"); 
             const [focusPlane, setFocusPlane] = useState(0); 
 
-            // Logic Fix: Power affects Magnitude of spread.
-            // Spread = Power / Abbe. Higher Power = Bigger Spread. Lower Abbe = Bigger Spread.
-            const baseDispersion = (Math.abs(power) / abbe) * 50; 
+            // Physics V16:
+            const power = 5; 
             
-            // Lateral Shift (Transverse)
-            // Prismatic Effect = P * c. TCA = P*c / v.
-            // Shift is proportional to viewHeight (decentration)
-            const lateralShift = (viewHeight / 20) * baseDispersion; 
+            // Calculate effective prism at the edges of the beam
+            // Higher offAxis = Both rays hit higher prism base.
+            const prismTop = ((offAxis - beamWidth/2) / 20) * power;
+            const prismBot = ((offAxis + beamWidth/2) / 20) * power;
+            
+            // Dispersion is proportional to Prism / Abbe
+            const dispTop = (prismTop / abbe) * 60;
+            const dispBot = (prismBot / abbe) * 60;
+            
+            // Average Prism drives lateral shift
+            const avgPrism = (offAxis / 20) * power;
+            const fringeShift = (avgPrism / abbe) * 100; // Lateral shift of colors
 
-            // Longitudinal Spread (Axial)
-            // Interval between Blue and Red focus.
-            const longSpread = baseDispersion * 3; 
-            
-            // Blur Logic:
-            // Focus Plane 0 = Yellow (Middle).
-            // Blue focus is @ -longSpread. Red focus is @ +longSpread.
-            // Distance from Retina (focusPlane) to color focus determines blur.
+            // Longitudinal Spread (Axial) - Constant for the lens material
+            const longSpread = (power / abbe) * 50; 
             const blurB = Math.abs(focusPlane + longSpread) / 5;
             const blurY = Math.abs(focusPlane) / 5; 
             const blurR = Math.abs(focusPlane - longSpread) / 5;
 
+            // Diagram Y coordinates
+            const yCenter = 150 + offAxis;
+
             return (
                 <div className="grid lg:grid-cols-2 gap-6">
-                    <Card title={mode === "lateral" ? "🔬 Ray Diagram (Lateral CA)" : "🔬 Ray Diagram (Longitudinal CA)"} className="h-[26rem]">
+                    <Card title={mode === "lateral" ? "🔬 Ray Diagram (Lateral Beam)" : "🔬 Ray Diagram (Longitudinal)"} className="h-[26rem]">
                         <ZoomableSVG viewBox="0 0 400 300" className="h-full">
-                            <ellipse cx="150" cy="150" rx="10" ry="80" fill="rgba(20, 184, 166, 0.2)" stroke="#0d9488" strokeWidth="2"/>
+                            <ellipse cx="150" cy="150" rx="10" ry="120" fill="rgba(20, 184, 166, 0.1)" stroke="#0d9488" strokeWidth="2"/>
                             
                             {mode === "lateral" ? (
                                 <>
-                                    <line x1="0" y1="150 - viewHeight * 3" x2="400" y2="150 - viewHeight * 3" stroke="#cbd5e1" strokeDasharray="4"/>
+                                    {/* Parallel Beam Entering at Off-Axis Height */}
+                                    <path d={`M 0 ${yCenter - beamWidth/2} L 150 ${yCenter - beamWidth/2}`} stroke="white" strokeWidth="3" className="drop-shadow-sm"/>
+                                    <path d={`M 0 ${yCenter} L 150 ${yCenter}`} stroke="white" strokeWidth="3" className="drop-shadow-sm"/>
+                                    <path d={`M 0 ${yCenter + beamWidth/2} L 150 ${yCenter + beamWidth/2}`} stroke="white" strokeWidth="3" className="drop-shadow-sm"/>
+
+                                    {/* Top Ray Splitting */}
+                                    <path d={`M 150 ${yCenter - beamWidth/2} L 350 ${yCenter - beamWidth/2 + beamWidth/2 + dispTop}`} stroke="#dc2626" fill="none" strokeWidth="2" opacity="0.8"/>
+                                    <path d={`M 150 ${yCenter - beamWidth/2} L 350 ${yCenter - beamWidth/2 + beamWidth/2}`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.8"/>
+                                    <path d={`M 150 ${yCenter - beamWidth/2} L 350 ${yCenter - beamWidth/2 + beamWidth/2 - dispTop}`} stroke="#2563eb" fill="none" strokeWidth="2" opacity="0.8"/>
+
+                                    {/* Bottom Ray Splitting */}
+                                    <path d={`M 150 ${yCenter + beamWidth/2} L 350 ${yCenter + beamWidth/2 - beamWidth/2 + dispBot}`} stroke="#dc2626" fill="none" strokeWidth="2" opacity="0.8"/>
+                                    <path d={`M 150 ${yCenter + beamWidth/2} L 350 ${yCenter + beamWidth/2 - beamWidth/2}`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.8"/>
+                                    <path d={`M 150 ${yCenter + beamWidth/2} L 350 ${yCenter + beamWidth/2 - beamWidth/2 - dispBot}`} stroke="#2563eb" fill="none" strokeWidth="2" opacity="0.8"/>
                                     
-                                    <path d={`M 50 ${150 - viewHeight * 3} L 150 ${150 - viewHeight * 3} L 350 ${150 - viewHeight * 3 + lateralShift*1.2}`} stroke="#dc2626" fill="none" strokeWidth="2" />
-                                    <path d={`M 50 ${150 - viewHeight * 3} L 150 ${150 - viewHeight * 3} L 350 ${150 - viewHeight * 3}`} stroke="#eab308" fill="none" strokeWidth="2" />
-                                    <path d={`M 50 ${150 - viewHeight * 3} L 150 ${150 - viewHeight * 3} L 350 ${150 - viewHeight * 3 - lateralShift*1.2}`} stroke="#2563eb" fill="none" strokeWidth="2" />
-                                    
-                                    <line x1="300" y1="50" x2="300" y2="250" stroke="#334155" strokeDasharray="4" opacity="0.5"/>
-                                    <text x="300" y="260" className="text-[12px] font-bold" textAnchor="middle">Retina</text>
+                                    <line x1="320" y1="50" x2="320" y2="250" stroke="#334155" strokeDasharray="4" opacity="0.5"/>
                                 </>
                             ) : (
                                 <>
-                                    {/* Blue (Short) */}
-                                    <path d={`M 0 130 L 150 130 L ${300 - longSpread} 150`} stroke="#2563eb" fill="none" strokeWidth="2" />
-                                    <path d={`M 0 170 L 150 170 L ${300 - longSpread} 150`} stroke="#2563eb" fill="none" strokeWidth="2" />
+                                    {/* Longitudinal Diagram (Axial) - Standard On-Axis */}
+                                    <path d={`M 0 120 L 150 120 L ${300 - longSpread} 150`} stroke="#2563eb" fill="none" strokeWidth="2" />
+                                    <path d={`M 0 180 L 150 180 L ${300 - longSpread} 150`} stroke="#2563eb" fill="none" strokeWidth="2" />
                                     
-                                    {/* Yellow (Mid) */}
-                                    <path d={`M 0 132 L 150 132 L 300 150`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.7"/>
-                                    <path d={`M 0 168 L 150 168 L 300 150`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.7"/>
+                                    <path d={`M 0 122 L 150 122 L 300 150`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.7"/>
+                                    <path d={`M 0 178 L 150 178 L 300 150`} stroke="#eab308" fill="none" strokeWidth="2" opacity="0.7"/>
 
-                                    {/* Red (Long) */}
-                                    <path d={`M 0 135 L 150 135 L ${300 + longSpread} 150`} stroke="#dc2626" fill="none" strokeWidth="2" />
-                                    <path d={`M 0 165 L 150 165 L ${300 + longSpread} 150`} stroke="#dc2626" fill="none" strokeWidth="2" />
+                                    <path d={`M 0 125 L 150 125 L ${300 + longSpread} 150`} stroke="#dc2626" fill="none" strokeWidth="2" />
+                                    <path d={`M 0 175 L 150 175 L ${300 + longSpread} 150`} stroke="#dc2626" fill="none" strokeWidth="2" />
                                     
-                                    {/* Retina Line Moving */}
                                     <line x1={300 + focusPlane} y1="100" x2={300 + focusPlane} y2="200" stroke="#334155" strokeWidth="3" />
                                     <text x={300 + focusPlane} y="220" className="text-[12px] font-bold" textAnchor="middle">Retina</text>
                                 </>
@@ -407,20 +517,18 @@
                         </ZoomableSVG>
                     </Card>
                     
-                    <Card title={mode === "lateral" ? "👁️ Patient View (Fringing)" : "👁️ Patient View (Chromatic Focus)"} className="h-[26rem]">
+                    <Card title={mode === "lateral" ? "👁️ Patient View (Peripheral Fringing)" : "👁️ Patient View (Duochrome)"} className="h-[26rem]">
                         <div className="h-full flex flex-col items-center justify-center bg-black relative overflow-hidden rounded-lg">
-                            {/* CONCEPT: White 'E' is composed of R, G, B channels mixed with SCREEN mode. */}
-                            {/* When perfectly aligned (no aberration), R+G+B = White. */}
                             <div className="relative flex items-center justify-center w-full h-full">
                                 {/* RED CHANNEL */}
                                 <div className="absolute text-9xl font-bold font-serif text-red-600 mix-screen"
                                      style={{
-                                         transform: mode === 'lateral' ? `translateY(${lateralShift}px)` : 'none',
+                                         transform: mode === 'lateral' ? `translateY(${fringeShift}px)` : 'none',
                                          filter: mode === 'lateral' ? 'none' : `blur(${blurR}px)`,
                                          opacity: 0.9
                                      }}>E</div>
 
-                                {/* GREEN CHANNEL (Reference) */}
+                                {/* GREEN/YELLOW CHANNEL */}
                                 <div className="absolute text-9xl font-bold font-serif text-green-500 mix-screen"
                                      style={{
                                          filter: mode === 'lateral' ? 'none' : `blur(${blurY}px)`,
@@ -430,14 +538,16 @@
                                 {/* BLUE CHANNEL */}
                                 <div className="absolute text-9xl font-bold font-serif text-blue-600 mix-screen"
                                      style={{
-                                         transform: mode === 'lateral' ? `translateY(${-lateralShift}px)` : 'none',
+                                         transform: mode === 'lateral' ? `translateY(${-fringeShift}px)` : 'none',
                                          filter: mode === 'lateral' ? 'none' : `blur(${blurB}px)`,
                                          opacity: 0.9
                                      }}>E</div>
                             </div>
                             
-                            <p className="absolute bottom-6 text-slate-400 text-xs text-center">
-                                {mode==="lateral" ? "Color fringes increase with power and off-axis distance" : "Adjust Retina position to see Red or Blue focus"}
+                            <p className="absolute bottom-6 text-slate-400 text-xs text-center w-3/4">
+                                {mode==="lateral" 
+                                    ? "Increase Off-Axis distance to see color separation (Prismatic Effect)." 
+                                    : "Red clear = Hyperopia. Green clear = Myopia."}
                             </p>
                         </div>
                     </Card>
@@ -451,22 +561,24 @@
                             
                             <div className="grid md:grid-cols-2 gap-6">
                                 <div>
-                                    <Slider label={`Lens Power: +${power}.00 D`} value={power} min={1} max={10} onChange={setPower} />
                                     <Slider label={`Abbe Number: ${abbe}`} value={abbe} min={20} max={60} onChange={setAbbe} />
-                                </div>
-                                <div>
                                     {mode === "lateral" ? (
-                                        <Slider label="Eye Position (Off-Axis)" value={viewHeight} min={0} max={40} onChange={setViewHeight} />
+                                        <>
+                                            <Slider label="Aperture (Beam Width)" value={beamWidth} min={5} max={80} onChange={setBeamWidth} />
+                                            <Slider label="Off-Axis Position" value={offAxis} min={0} max={80} onChange={setOffAxis} />
+                                        </>
                                     ) : (
                                         <Slider label="Retina Focus Plane" value={focusPlane} min={-50} max={50} onChange={setFocusPlane} />
                                     )}
                                 </div>
+                                <div>
+                                     <ClinicalNote points={[
+                                        mode === "lateral" 
+                                            ? "Lateral CA: Occurs when looking through the periphery of a lens. The amount of color fringing is proportional to the prismatic effect (Off-Axis Distance) and inversely proportional to the Abbe number."
+                                            : "Longitudinal CA: Blue light focuses sooner than Red light due to higher refractive index. This is used in the Duochrome test to balance spherical power."
+                                    ]} />
+                                </div>
                             </div>
-
-                            <ClinicalNote points={[
-                                "Longitudinal CA: Blue focuses before Red. This principle is used in the Duochrome Test. If Green letters are clearer, focus is in front of retina (Myopia). If Red letters are clearer, focus is behind retina (Hyperopia).",
-                                "Transverse CA: Visible as color fringes around objects when looking through the periphery of a lens. It is calculated as Prism / Abbe. High power + Low Abbe = Significant fringing."
-                            ]} />
                         </Card>
                     </div>
                 </div>
@@ -485,7 +597,7 @@
             return (
                 <div className="max-w-5xl mx-auto p-4 lg:p-8 min-h-screen flex flex-col">
                     <header className="mb-8 text-center pt-4">
-                        <div className="inline-block bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full mb-3 shadow-sm tracking-wider">V14 CLINICAL EDITION</div>
+                        <div className="inline-block bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full mb-3 shadow-sm tracking-wider">V16 CLINICAL EDITION</div>
                         <h1 className="text-3xl md:text-4xl font-extrabold text-slate-800 mb-2 tracking-tight">Aberration Simulator</h1>
                     </header>
 
@@ -513,7 +625,7 @@
                     <footer className="mt-24 pt-8 border-t border-slate-200 text-center pb-8">
                         <div className="flex flex-col items-center gap-4">
                             <div className="flex flex-wrap justify-center items-center gap-4">
-                                {/* Logo (PNG, No Background, Large) */}
+                                {/* Logo set to .png as requested */}
                                 <img src="logo.png" alt="Profile" className="w-24 h-auto object-contain hover:scale-105 transition" 
                                      onError={(e)=>{e.target.src='https://ui-avatars.com/api/?name=Syafiq+Hakimi&background=transparent&color=000&size=128&length=2'}}/>
 
